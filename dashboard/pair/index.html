@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>claw2boox - 配对</title>
+  <link rel="stylesheet" href="/dashboard/style.css">
+</head>
+<body>
+  <div class="pair-container" id="pairView">
+    <h1>claw2boox</h1>
+    <p>将此 BOOX 设备与 OpenClaw 配对</p>
+
+    <div class="pair-form">
+      <label style="font-size:14px; text-align:left;">服务器地址（已自动填入）</label>
+      <input
+        type="text"
+        class="pair-input-small"
+        id="serverUrl"
+        placeholder="http://192.168.1.x:3000"
+      >
+
+      <label style="font-size:14px; text-align:left;">输入 6 位配对码</label>
+      <input
+        type="text"
+        class="pair-input"
+        id="pairCode"
+        placeholder="000000"
+        maxlength="6"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        autocomplete="off"
+      >
+
+      <div class="pair-error" id="pairError"></div>
+
+      <button class="pair-btn" id="pairBtn" onclick="doPair()">配对</button>
+    </div>
+  </div>
+
+  <div class="pair-container" id="successView" style="display:none;">
+    <div class="pair-success">
+      <p>配对成功</p>
+      <p id="deviceName" style="font-size:14px; margin-top:8px;"></p>
+    </div>
+    <p style="margin-top:16px; font-size:14px;">正在跳转到仪表板...</p>
+  </div>
+
+  <script>
+    // Auto-fill server URL from current location
+    document.getElementById('serverUrl').value = location.origin;
+
+    // Auto-focus pair code input
+    document.getElementById('pairCode').focus();
+
+    // Get device info from Android WebView bridge (injected by the app)
+    function getDeviceInfo() {
+      // The Android app injects a 'Claw2Boox' JS interface
+      if (typeof Claw2Boox !== 'undefined') {
+        try {
+          return JSON.parse(Claw2Boox.getDeviceInfo());
+        } catch (e) {}
+      }
+      // Fallback: try to extract from User-Agent
+      const ua = navigator.userAgent;
+      const info = {
+        manufacturer: 'UNKNOWN',
+        model: 'UNKNOWN',
+        serial: '',
+      };
+      // BOOX devices typically have "ONYX" in their UA or build info
+      if (/ONYX/i.test(ua) || /BOOX/i.test(ua)) {
+        info.manufacturer = 'ONYX';
+      }
+      // Try to extract model
+      const match = ua.match(/BOOX\s+([^\s;)]+)/i) || ua.match(/ONYX\s+([^\s;)]+)/i);
+      if (match) {
+        info.model = match[1];
+      }
+      return info;
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('pairError');
+      el.textContent = msg;
+      el.classList.add('visible');
+    }
+
+    function hideError() {
+      document.getElementById('pairError').classList.remove('visible');
+    }
+
+    async function doPair() {
+      hideError();
+
+      const code = document.getElementById('pairCode').value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        showError('请输入 6 位数字配对码');
+        return;
+      }
+
+      const serverUrl = document.getElementById('serverUrl').value.trim().replace(/\/+$/, '');
+      if (!serverUrl) {
+        showError('请输入服务器地址');
+        return;
+      }
+
+      const btn = document.getElementById('pairBtn');
+      btn.disabled = true;
+      btn.textContent = '配对中...';
+
+      const deviceInfo = getDeviceInfo();
+
+      try {
+        const res = await fetch(serverUrl + '/api/pair/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, device: deviceInfo }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          showError(data.error || '配对失败');
+          btn.disabled = false;
+          btn.textContent = '配对';
+          return;
+        }
+
+        // Save token
+        localStorage.setItem('claw2boox_token', data.token);
+
+        // Notify Android app to save token
+        if (typeof Claw2Boox !== 'undefined') {
+          try {
+            Claw2Boox.onPaired(data.token, serverUrl);
+          } catch (e) {}
+        }
+
+        // Show success
+        document.getElementById('pairView').style.display = 'none';
+        document.getElementById('successView').style.display = 'block';
+        document.getElementById('deviceName').textContent = data.display_name;
+
+        // Redirect to dashboard
+        setTimeout(() => {
+          location.href = serverUrl + '/dashboard?token=' + encodeURIComponent(data.token);
+        }, 2000);
+
+      } catch (err) {
+        showError('无法连接服务器: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = '配对';
+      }
+    }
+
+    // Allow Enter key to submit
+    document.getElementById('pairCode').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doPair();
+    });
+  </script>
+</body>
+</html>

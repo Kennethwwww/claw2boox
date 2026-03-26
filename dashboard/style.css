@@ -1,0 +1,302 @@
+/* === E-Ink Optimized Styles for BOOX === */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: 'Noto Sans SC', 'Noto Sans', -apple-system, sans-serif;
+  font-size: 18px;
+  line-height: 1.6;
+  color: #000;
+  background: #fff;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+}
+
+body {
+  padding: 12px;
+  min-height: 100vh;
+}
+
+/* --- Header --- */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 3px solid #000;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+.header-title {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+}
+
+.header-meta {
+  font-size: 14px;
+  text-align: right;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #000;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.status-dot.online {
+  background: #000;
+}
+
+.status-dot.offline {
+  background: #fff;
+}
+
+/* --- Dashboard Grid --- */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  height: calc(100vh - 80px);
+}
+
+/* Briefing panel spans full width on bottom */
+.panel--briefing {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .panel--briefing {
+    grid-column: 1;
+  }
+}
+
+/* --- Panel --- */
+
+.panel {
+  border: 2px solid #000;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.panel-title {
+  font-size: 20px;
+  font-weight: 700;
+  border-bottom: 2px solid #000;
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.panel-title .count {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+/* --- Lists --- */
+
+.item-list {
+  list-style: none;
+}
+
+.item-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid #000;
+}
+
+.item-list li:last-child {
+  border-bottom: none;
+}
+
+.item-name {
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.item-detail {
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+.item-status {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* --- Briefing Messages --- */
+
+.briefing-item {
+  padding: 10px 0;
+  border-bottom: 1px solid #000;
+}
+
+.briefing-item:last-child {
+  border-bottom: none;
+}
+
+.briefing-time {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.briefing-content {
+  font-size: 16px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- Empty state --- */
+
+.empty-state {
+  text-align: center;
+  padding: 24px;
+  font-size: 16px;
+  border: 1px dashed #000;
+  margin: 12px 0;
+}
+
+/* --- Pairing Page --- */
+
+.pair-container {
+  max-width: 480px;
+  margin: 60px auto;
+  text-align: center;
+}
+
+.pair-container h1 {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.pair-container p {
+  font-size: 16px;
+  margin-bottom: 24px;
+}
+
+.pair-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pair-input {
+  font-size: 24px;
+  padding: 12px 16px;
+  border: 3px solid #000;
+  background: #fff;
+  color: #000;
+  text-align: center;
+  letter-spacing: 8px;
+  font-weight: 700;
+  outline: none;
+  width: 100%;
+}
+
+.pair-input::placeholder {
+  letter-spacing: 2px;
+  color: #999;
+}
+
+.pair-input-small {
+  font-size: 16px;
+  padding: 10px 16px;
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  text-align: center;
+  letter-spacing: 0;
+  outline: none;
+  width: 100%;
+}
+
+.pair-btn {
+  font-size: 20px;
+  font-weight: 700;
+  padding: 14px;
+  border: 3px solid #000;
+  background: #000;
+  color: #fff;
+  cursor: pointer;
+  min-height: 56px;
+}
+
+.pair-btn:active {
+  background: #fff;
+  color: #000;
+}
+
+.pair-btn:disabled {
+  background: #fff;
+  color: #000;
+  border-style: dashed;
+}
+
+.pair-error {
+  font-size: 16px;
+  font-weight: 700;
+  border: 2px solid #000;
+  padding: 10px;
+  display: none;
+}
+
+.pair-error.visible {
+  display: block;
+}
+
+.pair-success {
+  font-size: 18px;
+  font-weight: 700;
+  padding: 16px;
+  border: 3px solid #000;
+  background: #000;
+  color: #fff;
+}
+
+/* --- Refresh indicator --- */
+
+.refresh-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #000;
+  color: #fff;
+  text-align: center;
+  font-size: 13px;
+  padding: 4px;
+  display: none;
+}
+
+.refresh-bar.visible {
+  display: block;
+}
+
+/* --- Landscape optimization for BOOX Tab Ultra / Tab X --- */
+
+@media (min-width: 1400px) {
+  html {
+    font-size: 20px;
+  }
+  .header-title {
+    font-size: 30px;
+  }
+}

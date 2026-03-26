@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="600">
+  <title>claw2boox - OpenClaw Dashboard</title>
+  <link rel="stylesheet" href="/dashboard/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-title">OpenClaw</div>
+    <div class="header-meta">
+      <div><span class="status-dot" id="statusDot"></span><span id="statusText">连接中...</span></div>
+      <div id="lastUpdate">--</div>
+    </div>
+  </header>
+
+  <main class="dashboard-grid">
+    <!-- Status Panel -->
+    <section class="panel panel--status">
+      <div class="panel-title">
+        <span>系统状态</span>
+      </div>
+      <ul class="item-list" id="statusList">
+        <li class="empty-state">加载中...</li>
+      </ul>
+    </section>
+
+    <!-- Nodes Panel -->
+    <section class="panel panel--nodes">
+      <div class="panel-title">
+        <span>设备节点</span>
+        <span class="count" id="nodeCount"></span>
+      </div>
+      <ul class="item-list" id="nodeList">
+        <li class="empty-state">加载中...</li>
+      </ul>
+    </section>
+
+    <!-- Briefing Panel (full width) -->
+    <section class="panel panel--briefing">
+      <div class="panel-title">
+        <span>信息简报</span>
+        <span class="count" id="briefingCount"></span>
+      </div>
+      <div id="briefingList">
+        <div class="empty-state">暂无简报</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="refresh-bar" id="refreshBar">正在刷新...</div>
+
+  <script src="/dashboard/js/utils/eink.js"></script>
+  <script src="/dashboard/js/utils/time.js"></script>
+  <script src="/dashboard/js/ws-client.js"></script>
+  <script src="/dashboard/js/panels/status.js"></script>
+  <script src="/dashboard/js/panels/nodes.js"></script>
+  <script src="/dashboard/js/panels/briefing.js"></script>
+  <script src="/dashboard/js/app.js"></script>
+</body>
+</html>
