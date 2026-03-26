@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Black rounded rectangle background -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M8,8 L40,8 Q40,8 40,8 L40,40 Q40,40 40,40 L8,40 Q8,40 8,40 L8,8 Z" />
+
+    <!-- White "C" letter shape -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,16 Q24,14 20,18 Q14,22 14,24 Q14,26 20,30 Q24,34 30,32 L30,28 Q26,30 22,28 Q18,26 18,24 Q18,22 22,20 Q26,18 30,20 Z" />
+
+</vector>
