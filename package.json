@@ -1,0 +1,35 @@
+{
+  "name": "claw2boox",
+  "version": "0.1.0",
+  "description": "Turn your BOOX e-ink tablet into an OpenClaw dashboard. One command setup.",
+  "bin": {
+    "claw2boox": "./bin/claw2boox.js"
+  },
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node bin/claw2boox.js",
+    "dev": "node --watch bin/claw2boox.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "bonjour-service": "^1.3.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "bin/",
+    "server/",
+    "dashboard/",
+    "README.md"
+  ],
+  "keywords": ["boox", "openclaw", "e-ink", "dashboard", "iot"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kennethwwww/claw2boox"
+  }
+}

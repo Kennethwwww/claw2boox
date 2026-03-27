@@ -16,6 +16,7 @@ const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || '';
 const REFRESH_INTERVAL_MS = parseInt(process.env.REFRESH_INTERVAL_MS || '300000', 10);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const INSTANCE_NAME = process.env.INSTANCE_NAME || os.hostname();
+const DASHBOARD_DIR = path.join(__dirname, '..', 'dashboard');
 
 // --- Initialize ---
 
@@ -143,13 +144,13 @@ app.get('/api/briefings', requireDevice, async (req, res) => {
 // --- Static files ---
 
 app.get('/dashboard', requireDevice, (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'dashboard', 'index.html'));
+  res.sendFile(path.join(DASHBOARD_DIR, 'index.html'));
 });
 app.get('/dashboard/', requireDevice, (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'dashboard', 'index.html'));
+  res.sendFile(path.join(DASHBOARD_DIR, 'index.html'));
 });
-app.use('/dashboard', express.static(path.join(__dirname, '..', 'dashboard')));
-app.use('/pair', express.static(path.join(__dirname, '..', 'dashboard', 'pair')));
+app.use('/dashboard', express.static(DASHBOARD_DIR));
+app.use('/pair', express.static(path.join(DASHBOARD_DIR, 'pair')));
 
 app.get('/', (req, res) => {
   const token = req.query.token;
@@ -265,13 +266,12 @@ function printBanner(pairCode) {
 // --- Start ---
 
 async function start() {
-  try {
-    await proxy.connectToGateway();
-    console.log('[server] Connected to OpenClaw gateway');
-  } catch (err) {
-    console.warn(`[server] Could not connect to gateway at ${gatewayUrl}: ${err.message}`);
-    console.warn('[server] Will retry in background.');
-  }
+  // Connect to gateway in background (don't block server startup)
+  proxy.connectToGateway()
+    .then(() => console.log('[server] Connected to OpenClaw gateway'))
+    .catch((err) => {
+      console.warn(`[server] Gateway not available at ${gatewayUrl} — will retry in background`);
+    });
 
   server.listen(PORT, '0.0.0.0', () => {
     // Start mDNS advertisement

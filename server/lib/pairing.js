@@ -2,7 +2,10 @@ const crypto = require('crypto');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'claw2boox.db');
+const DB_PATH = path.join(
+  process.env.CLAW2BOOX_DATA_DIR || path.join(require('os').homedir(), '.claw2boox'),
+  'claw2boox.db'
+);
 const PAIR_CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_DEVICES = 1; // Current limit: 1 device. Change this to support multiple.
 
