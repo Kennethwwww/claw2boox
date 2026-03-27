@@ -77,15 +77,38 @@ class GatewayProxy {
         this.authenticated = false;
         this.consecutiveFailures++;
 
-        if (this.consecutiveFailures <= 1) {
-          const reasonStr = reason ? reason.toString() : '';
-          console.log(`[gateway] Connection closed (code: ${code}${reasonStr ? ', reason: ' + reasonStr : ''})`);
+        const reasonStr = reason ? reason.toString() : '';
 
-          if (code === 1008 || code === 4001 || code === 4003) {
-            console.log('[gateway] Protocol/auth error — check Gateway password and protocol version');
+        if (this.consecutiveFailures <= 1) {
+          console.log(`[gateway] Connection closed (code: ${code}${reasonStr ? ', reason: ' + reasonStr : ''})`);
+        }
+
+        // Fatal errors — stop reconnecting, don't spam
+        if (reasonStr.includes('device identity required') || reasonStr.includes('NOT_PAIRED')) {
+          if (this.consecutiveFailures <= 1) {
+            console.log('');
+            console.log('[gateway] ⚠ OpenClaw Gateway requires device identity.');
+            console.log('[gateway] claw2boox needs to be paired with OpenClaw first.');
+            console.log('[gateway]');
+            console.log('[gateway] On this machine, run:');
+            console.log('[gateway]   openclaw pair claw2boox');
+            console.log('[gateway] Then restart claw2boox with the device token:');
+            console.log('[gateway]   npx claw2boox --device-token <token>');
+            console.log('[gateway]');
+            console.log('[gateway] Dashboard will still work — Gateway status will show "未配对".');
+            console.log('');
           }
-        } else if (this.consecutiveFailures === 3) {
-          console.log(`[gateway] Repeated failures. Backing off (retry every ${Math.round(this.currentDelay / 1000)}s)`);
+          this.fatalError = 'NOT_PAIRED';
+          // Don't reconnect for fatal errors
+          return;
+        }
+
+        if (this.consecutiveFailures <= 1 && (code === 1008 || code === 4001 || code === 4003)) {
+          console.log('[gateway] Protocol/auth error — check Gateway password');
+        }
+
+        if (this.consecutiveFailures >= 3 && this.consecutiveFailures % 10 === 0) {
+          console.log(`[gateway] Still retrying... (attempt ${this.consecutiveFailures})`);
         }
 
         this._scheduleReconnect();
@@ -128,7 +151,10 @@ class GatewayProxy {
       // Handle error responses
       if (msg.type === 'res' && !msg.ok) {
         const errMsg = msg.error || msg.payload?.error || 'unknown error';
-        console.error('[gateway] Request failed:', errMsg);
+        // Don't log NOT_PAIRED repeatedly - it's handled in close handler
+        if (msg.error?.code !== 'NOT_PAIRED') {
+          console.error('[gateway] Request failed:', errMsg);
+        }
         // Still resolve pending requests so they don't hang
         if (msg.id && this.pendingRequests.has(msg.id)) {
           const { resolve } = this.pendingRequests.get(msg.id);
@@ -254,7 +280,14 @@ class GatewayProxy {
   }
 
   isConnected() {
-    return this.connected && this.gateway && this.gateway.readyState === WebSocket.OPEN;
+    return this.connected && this.authenticated && this.gateway && this.gateway.readyState === WebSocket.OPEN;
+  }
+
+  getStatus() {
+    if (this.fatalError === 'NOT_PAIRED') return 'not_paired';
+    if (this.authenticated) return 'connected';
+    if (this.connected) return 'connecting';
+    return 'disconnected';
   }
 
   close() {

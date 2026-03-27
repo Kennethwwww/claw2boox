@@ -373,8 +373,9 @@ class MainActivity : AppCompatActivity() {
                             return;
                         }
 
-                        localStorage.setItem('claw2boox_token', data.token);
+                        // Save via native bridge (localStorage not available in null-origin WebView)
                         try { Claw2Boox.onPaired(data.token, serverUrl); } catch(e) {}
+                        try { localStorage.setItem('claw2boox_token', data.token); } catch(e) {}
 
                         // Step 3: Success
                         document.getElementById('pairSection').classList.remove('visible');

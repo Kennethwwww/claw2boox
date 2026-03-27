@@ -119,6 +119,7 @@ app.get('/api/config', requireDevice, (req, res) => {
   res.json({
     refresh_interval_ms: REFRESH_INTERVAL_MS,
     gateway_connected: proxy.isConnected(),
+    gateway_status: proxy.getStatus(),
     device: { id: req.device.id, display_name: req.device.display_name },
   });
 });
