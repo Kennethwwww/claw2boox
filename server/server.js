@@ -190,21 +190,43 @@ wss.on('connection', (ws, request, device) => {
 // --- mDNS Service Advertisement ---
 
 function startMDNS() {
-  const bonjour = new Bonjour();
+  try {
+    const bonjour = new Bonjour();
 
-  bonjour.publish({
-    name: `claw2boox-${INSTANCE_NAME}`,
-    type: 'claw2boox',
-    protocol: 'tcp',
-    port: PORT,
-    txt: {
-      version: '0.1.0',
-      instance: INSTANCE_NAME,
-    },
-  });
+    // Publish as custom type
+    bonjour.publish({
+      name: `claw2boox-${INSTANCE_NAME}`,
+      type: 'claw2boox',
+      protocol: 'tcp',
+      port: PORT,
+      txt: {
+        version: '0.1.0',
+        instance: INSTANCE_NAME,
+        path: '/api/discover',
+      },
+    });
 
-  console.log(`[mdns] Advertising _claw2boox._tcp on port ${PORT} as "${INSTANCE_NAME}"`);
-  return bonjour;
+    // Also publish as standard HTTP service (better Android NSD compatibility)
+    bonjour.publish({
+      name: `claw2boox-${INSTANCE_NAME}`,
+      type: 'http',
+      protocol: 'tcp',
+      port: PORT,
+      txt: {
+        version: '0.1.0',
+        instance: INSTANCE_NAME,
+        service: 'claw2boox',
+        path: '/api/discover',
+      },
+    });
+
+    console.log(`[mdns] Advertising on port ${PORT} as "${INSTANCE_NAME}"`);
+    return bonjour;
+  } catch (err) {
+    console.warn(`[mdns] Failed to start mDNS: ${err.message}`);
+    console.warn('[mdns] BOOX App will need to use manual IP entry or network scan.');
+    return null;
+  }
 }
 
 // --- CLI: Pretty startup with auto pairing code ---
