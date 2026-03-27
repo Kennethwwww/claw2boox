@@ -274,20 +274,33 @@ class GatewayProxy {
 
     console.log('[gateway] Responding to challenge with Gateway nonce:', challengeNonce.substring(0, 16) + '...');
 
-    // Build fresh params (already includes self-signed nonce)
     const params = this._buildConnectParams();
 
-    // Override with Gateway's challenge nonce and re-sign
+    // Sign with the structured v2 payload format expected by OpenClaw Gateway
+    // Format: v2|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
     if (this.identity?.privateKeyPem && params.device) {
       try {
         const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
         const signedAt = Date.now();
-        const payload = `${challengeNonce}:${signedAt}`;
-        const signature = crypto.sign(null, Buffer.from(payload), privateKey);
+
+        const deviceId = this.identity.deviceId;
+        const clientId = params.client.id;
+        const clientMode = params.client.mode;
+        const role = params.role;
+        const scopes = params.scopes.join(',');
+        const token = this.identity.token || '';
+
+        const payload = ['v2', deviceId, clientId, clientMode, role, scopes, String(signedAt), token, challengeNonce].join('|');
+
+        console.log('[gateway] Signing payload:', payload.substring(0, 80) + '...');
+
+        const signature = crypto.sign(null, Buffer.from(payload, 'utf8'), privateKey);
+        // Use base64url encoding (Gateway expects base64url, but also accepts standard base64)
+        const signatureB64 = signature.toString('base64url');
 
         params.device.nonce = challengeNonce;
         params.device.signedAt = signedAt;
-        params.device.signature = signature.toString('base64');
+        params.device.signature = signatureB64;
       } catch (e) {
         console.error('[gateway] Failed to sign challenge:', e.message);
       }
