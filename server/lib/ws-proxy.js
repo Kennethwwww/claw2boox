@@ -84,11 +84,37 @@ class GatewayProxy {
     if (this.identity) {
       params.auth = { token: this.identity.token };
 
-      // Device identity (required by Gateway)
+      // Device identity with self-signed nonce (all fields required by Gateway)
+      const nonce = crypto.randomBytes(32).toString('hex');
+      const signedAt = Date.now();
       params.device = {
         id: this.identity.deviceId,
         publicKey: this.identity.publicKeyPem,
+        nonce,
+        signedAt,
       };
+
+      // Sign nonce with Ed25519 private key
+      if (this.identity.privateKeyPem) {
+        try {
+          const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
+          const payload = `${nonce}:${signedAt}`;
+          const signature = crypto.sign(null, Buffer.from(payload), privateKey);
+          params.device.signature = signature.toString('base64');
+        } catch (e) {
+          console.error('[gateway] Failed to sign nonce:', e.message);
+          // Try signing just the nonce without signedAt
+          try {
+            const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
+            const signature = crypto.sign(null, Buffer.from(nonce), privateKey);
+            params.device.signature = signature.toString('base64');
+          } catch (e2) {
+            console.error('[gateway] Failed to sign (fallback):', e2.message);
+          }
+        }
+      } else {
+        console.warn('[gateway] No private key available — cannot sign device identity');
+      }
     } else if (this.deviceToken) {
       params.auth = { token: this.deviceToken };
     } else if (this.password) {
@@ -273,36 +299,28 @@ class GatewayProxy {
   }
 
   _respondToChallenge(challengeMsg) {
-    // Extract nonce from various formats
-    const nonce = challengeMsg.payload?.nonce || challengeMsg.nonce;
-    const ts = challengeMsg.payload?.ts || Date.now();
+    // Extract nonce from Gateway challenge
+    const challengeNonce = challengeMsg.payload?.nonce || challengeMsg.nonce;
 
-    if (!nonce) {
+    if (!challengeNonce) {
       console.error('[gateway] Challenge received but no nonce found:', JSON.stringify(challengeMsg).substring(0, 200));
       return;
     }
 
-    console.log('[gateway] Responding to challenge, nonce:', nonce.substring(0, 16) + '...');
+    console.log('[gateway] Responding to challenge with Gateway nonce:', challengeNonce.substring(0, 16) + '...');
 
+    // Build fresh params (already includes self-signed nonce)
     const params = this._buildConnectParams();
 
-    // Sign the challenge nonce with Ed25519 private key
-    if (this.identity?.privateKeyPem) {
+    // Override with Gateway's challenge nonce and re-sign
+    if (this.identity?.privateKeyPem && params.device) {
       try {
         const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
         const signedAt = Date.now();
+        const payload = `${challengeNonce}:${signedAt}`;
+        const signature = crypto.sign(null, Buffer.from(payload), privateKey);
 
-        // Try signing nonce:signedAt first, then just nonce
-        let signature;
-        try {
-          const payload = `${nonce}:${signedAt}`;
-          signature = crypto.sign(null, Buffer.from(payload), privateKey);
-        } catch (e) {
-          signature = crypto.sign(null, Buffer.from(nonce), privateKey);
-        }
-
-        params.device = params.device || {};
-        params.device.nonce = nonce;
+        params.device.nonce = challengeNonce;
         params.device.signedAt = signedAt;
         params.device.signature = signature.toString('base64');
       } catch (e) {
