@@ -6,14 +6,21 @@
   const TOKEN_KEY = 'claw2boox_token';
 
   function getToken() {
-    // Priority: URL param > localStorage
+    // Priority: URL param > native bridge > localStorage
     const params = new URLSearchParams(location.search);
     const urlToken = params.get('token');
     if (urlToken) {
-      localStorage.setItem(TOKEN_KEY, urlToken);
+      try { localStorage.setItem(TOKEN_KEY, urlToken); } catch (e) {}
       return urlToken;
     }
-    return localStorage.getItem(TOKEN_KEY);
+    // Try native bridge (BOOX WebView)
+    try {
+      if (window.Claw2Boox && window.Claw2Boox.getToken) {
+        const nativeToken = window.Claw2Boox.getToken();
+        if (nativeToken) return nativeToken;
+      }
+    } catch (e) {}
+    try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; }
   }
 
   const token = getToken();

@@ -116,6 +116,7 @@ app.delete('/api/devices/:id', requireAdmin, (req, res) => {
 // --- Dashboard API (requires paired device) ---
 
 app.get('/api/config', requireDevice, (req, res) => {
+  console.log(`[api] /api/config — gateway_connected=${proxy.isConnected()}, status=${proxy.getStatus()}`);
   res.json({
     refresh_interval_ms: REFRESH_INTERVAL_MS,
     gateway_connected: proxy.isConnected(),
@@ -125,15 +126,21 @@ app.get('/api/config', requireDevice, (req, res) => {
 });
 
 app.get('/api/status', requireDevice, async (req, res) => {
+  console.log(`[api] /api/status called — isConnected=${proxy.isConnected()}, status=${proxy.getStatus()}, connected=${proxy.connected}, authenticated=${proxy.authenticated}`);
   try {
     const [sessions, nodes] = await Promise.all([
-      proxy.rpc('sessions.list').catch(() => ({ result: [] })),
-      proxy.rpc('node.list').catch(() => ({ result: [] })),
+      proxy.rpc('sessions.list').catch((e) => { console.log('[api] sessions.list error:', e.message); return { result: [] }; }),
+      proxy.rpc('node.list').catch((e) => { console.log('[api] node.list error:', e.message); return { result: [] }; }),
     ]);
+    console.log('[api] sessions response:', JSON.stringify(sessions).substring(0, 200));
+    console.log('[api] nodes response:', JSON.stringify(nodes).substring(0, 200));
+    // Extract data from various response formats
+    const sessionList = sessions.result || sessions.payload?.result || sessions.payload?.sessions || sessions.payload || [];
+    const nodeList = nodes.result || nodes.payload?.result || nodes.payload?.nodes || nodes.payload || [];
     res.json({
       gateway_connected: proxy.isConnected(),
-      sessions: sessions.result || [],
-      nodes: nodes.result || [],
+      sessions: Array.isArray(sessionList) ? sessionList : [],
+      nodes: Array.isArray(nodeList) ? nodeList : [],
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
@@ -147,8 +154,9 @@ app.get('/api/status', requireDevice, async (req, res) => {
 app.get('/api/briefings', requireDevice, async (req, res) => {
   const limit = parseInt(req.query.limit || '20', 10);
   try {
-    const history = await proxy.rpc('sessions.history', { peer: 'claw2boox-briefing', limit });
-    res.json({ messages: history.result || [], timestamp: new Date().toISOString() });
+    const history = await proxy.rpc('chat.history', { peer: 'claw2boox-briefing', limit });
+    const messages = history.result || history.payload?.result || history.payload?.messages || history.payload || [];
+    res.json({ messages: Array.isArray(messages) ? messages : [], timestamp: new Date().toISOString() });
   } catch (err) {
     res.json({ messages: [], error: err.message, timestamp: new Date().toISOString() });
   }

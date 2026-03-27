@@ -220,18 +220,29 @@ class GatewayProxy {
   _handleGatewayMessage(rawMsg) {
     try {
       const msg = JSON.parse(rawMsg);
+      console.log('[gateway] <<< MSG:', JSON.stringify(msg).substring(0, 300));
 
-      // Handle connect response (hello-ok)
-      if (msg.type === 'res' && msg.ok && msg.payload && msg.payload.type === 'hello-ok') {
+      // Handle connect response — detect auth success broadly
+      if (msg.id && msg.id.startsWith('claw2boox-connect')) {
+        if (msg.type === 'res' && msg.ok !== false) {
+          this.authenticated = true;
+          const proto = msg.payload?.protocol || msg.protocol || '?';
+          console.log(`[gateway] Authenticated successfully (protocol v${proto})`);
+          return;
+        }
+      }
+
+      // Also handle hello-ok payload format
+      if (msg.type === 'res' && msg.payload && msg.payload.type === 'hello-ok') {
         this.authenticated = true;
-        console.log('[gateway] Authenticated successfully (protocol v' + (msg.payload.protocol || '?') + ')');
+        console.log('[gateway] Authenticated via hello-ok (protocol v' + (msg.payload.protocol || '?') + ')');
         return;
       }
 
-      // Simpler success response to connect
-      if (msg.type === 'res' && msg.ok && msg.id && msg.id.startsWith('claw2boox-connect')) {
+      // Also handle: gateway sends a welcome/connected event (no id field)
+      if ((msg.type === 'connected' || msg.type === 'welcome' || msg.method === 'connected') && !this.authenticated) {
         this.authenticated = true;
-        console.log('[gateway] Authenticated successfully');
+        console.log('[gateway] Authenticated via welcome/connected message');
         return;
       }
 
