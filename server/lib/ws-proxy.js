@@ -1,10 +1,48 @@
 const WebSocket = require('ws');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+/**
+ * Load OpenClaw device identity from ~/.openclaw/identity/
+ * Returns { deviceId, token, publicKeyPem, privateKeyPem } or null
+ */
+function loadOpenClawIdentity() {
+  const openclawDir = path.join(os.homedir(), '.openclaw');
+  const authFile = path.join(openclawDir, 'identity', 'device-auth.json');
+  const deviceFile = path.join(openclawDir, 'identity', 'device.json');
+
+  try {
+    if (!fs.existsSync(authFile) || !fs.existsSync(deviceFile)) {
+      return null;
+    }
+
+    const auth = JSON.parse(fs.readFileSync(authFile, 'utf-8'));
+    const device = JSON.parse(fs.readFileSync(deviceFile, 'utf-8'));
+
+    if (!auth.deviceId || !auth.tokens?.operator?.token) {
+      return null;
+    }
+
+    return {
+      deviceId: auth.deviceId,
+      token: auth.tokens.operator.token,
+      role: auth.tokens.operator.role || 'operator',
+      scopes: auth.tokens.operator.scopes || ['operator.read'],
+      publicKeyPem: device.publicKeyPem || null,
+      privateKeyPem: device.privateKeyPem || null,
+    };
+  } catch (e) {
+    return null;
+  }
+}
 
 class GatewayProxy {
   constructor(gatewayUrl, options = {}) {
     this.gatewayUrl = gatewayUrl;
     this.password = options.password || '';
+    this.deviceToken = options.deviceToken || '';
     this.gateway = null;
     this.client = null;
     this.reconnectTimer = null;
@@ -13,6 +51,13 @@ class GatewayProxy {
     this.connected = false;
     this.authenticated = false;
     this.lastStatus = null;
+    this.fatalError = null;
+
+    // Auto-detect OpenClaw identity
+    this.identity = loadOpenClawIdentity();
+    if (this.identity) {
+      console.log(`[gateway] Found OpenClaw device identity: ${this.identity.deviceId.substring(0, 12)}...`);
+    }
 
     // Exponential backoff
     this.reconnectDelay = 5000;
@@ -21,8 +66,45 @@ class GatewayProxy {
     this.consecutiveFailures = 0;
   }
 
+  _buildConnectParams() {
+    const params = {
+      minProtocol: 3,
+      maxProtocol: 3,
+      client: {
+        id: 'gateway-client',
+        version: '0.1.0',
+        platform: 'nodejs',
+        mode: 'backend',
+      },
+      role: 'operator',
+      scopes: ['operator.read'],
+    };
+
+    // Auth: prefer device token from identity, then CLI flag, then password
+    if (this.identity) {
+      params.auth = { token: this.identity.token };
+      params.device = { id: this.identity.deviceId };
+      if (this.identity.publicKeyPem) {
+        params.device.publicKey = this.identity.publicKeyPem;
+      }
+    } else if (this.deviceToken) {
+      params.auth = { token: this.deviceToken };
+    } else if (this.password) {
+      params.auth = { password: this.password };
+    } else {
+      params.auth = {};
+    }
+
+    return params;
+  }
+
   connectToGateway() {
     return new Promise((resolve, reject) => {
+      if (this.fatalError) {
+        reject(new Error(this.fatalError));
+        return;
+      }
+
       if (this.gateway && this.gateway.readyState === WebSocket.OPEN) {
         resolve();
         return;
@@ -40,28 +122,11 @@ class GatewayProxy {
         this.consecutiveFailures = 0;
         console.log('[gateway] Connected to OpenClaw');
 
-        // Send connect request using the correct OpenClaw protocol format
-        // client.id must be one of: cli, gateway-client, webchat, node-host, etc.
-        // client.mode must be one of: cli, ui, backend, node, webchat, probe, test
         const connectReq = {
           type: 'req',
           id: `claw2boox-connect-${++this.requestId}`,
           method: 'connect',
-          params: {
-            minProtocol: 3,
-            maxProtocol: 3,
-            client: {
-              id: 'gateway-client',
-              version: '0.1.0',
-              platform: 'nodejs',
-              mode: 'backend',
-            },
-            role: 'operator',
-            scopes: ['operator.read'],
-            auth: this.password
-              ? { password: this.password }
-              : {},
-          },
+          params: this._buildConnectParams(),
         };
 
         this.gateway.send(JSON.stringify(connectReq));
@@ -83,28 +148,32 @@ class GatewayProxy {
           console.log(`[gateway] Connection closed (code: ${code}${reasonStr ? ', reason: ' + reasonStr : ''})`);
         }
 
-        // Fatal errors — stop reconnecting, don't spam
+        // Fatal: device identity required and we don't have one
         if (reasonStr.includes('device identity required') || reasonStr.includes('NOT_PAIRED')) {
-          if (this.consecutiveFailures <= 1) {
-            console.log('');
-            console.log('[gateway] ⚠ OpenClaw Gateway requires device identity.');
-            console.log('[gateway] claw2boox needs to be paired with OpenClaw first.');
-            console.log('[gateway]');
-            console.log('[gateway] On this machine, run:');
-            console.log('[gateway]   openclaw pair claw2boox');
-            console.log('[gateway] Then restart claw2boox with the device token:');
-            console.log('[gateway]   npx claw2boox --device-token <token>');
-            console.log('[gateway]');
-            console.log('[gateway] Dashboard will still work — Gateway status will show "未配对".');
-            console.log('');
+          if (!this.identity && !this.deviceToken) {
+            if (this.consecutiveFailures <= 1) {
+              console.log('');
+              console.log('[gateway] ⚠ OpenClaw Gateway requires device identity.');
+              console.log('[gateway] Could not find ~/.openclaw/identity/ files.');
+              console.log('[gateway]');
+              console.log('[gateway] Make sure OpenClaw has been onboarded on this machine:');
+              console.log('[gateway]   openclaw onboard --install-daemon');
+              console.log('[gateway]');
+              console.log('[gateway] Dashboard will still work — Gateway status will show "未连接".');
+              console.log('');
+            }
+            this.fatalError = 'NOT_PAIRED';
+            return;
           }
-          this.fatalError = 'NOT_PAIRED';
-          // Don't reconnect for fatal errors
-          return;
         }
 
-        if (this.consecutiveFailures <= 1 && (code === 1008 || code === 4001 || code === 4003)) {
-          console.log('[gateway] Protocol/auth error — check Gateway password');
+        // Fatal: invalid connect params — don't retry
+        if (reasonStr.includes('invalid connect params')) {
+          if (this.consecutiveFailures <= 1) {
+            console.log('[gateway] Invalid connect params — protocol mismatch');
+          }
+          this.fatalError = 'INVALID_PARAMS';
+          return;
         }
 
         if (this.consecutiveFailures >= 3 && this.consecutiveFailures % 10 === 0) {
@@ -135,7 +204,7 @@ class GatewayProxy {
         return;
       }
 
-      // Also handle simpler success responses to our connect request
+      // Simpler success response to connect
       if (msg.type === 'res' && msg.ok && msg.id && msg.id.startsWith('claw2boox-connect')) {
         this.authenticated = true;
         console.log('[gateway] Authenticated successfully');
@@ -151,11 +220,9 @@ class GatewayProxy {
       // Handle error responses
       if (msg.type === 'res' && !msg.ok) {
         const errMsg = msg.error || msg.payload?.error || 'unknown error';
-        // Don't log NOT_PAIRED repeatedly - it's handled in close handler
         if (msg.error?.code !== 'NOT_PAIRED') {
-          console.error('[gateway] Request failed:', errMsg);
+          console.error('[gateway] Request failed:', typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
         }
-        // Still resolve pending requests so they don't hang
         if (msg.id && this.pendingRequests.has(msg.id)) {
           const { resolve } = this.pendingRequests.get(msg.id);
           this.pendingRequests.delete(msg.id);
@@ -171,7 +238,7 @@ class GatewayProxy {
         resolve(msg);
       }
 
-      // Forward events and other messages to connected BOOX client
+      // Forward events to connected BOOX client
       if (this.client && this.client.readyState === WebSocket.OPEN) {
         this.client.send(rawMsg);
       }
@@ -189,45 +256,34 @@ class GatewayProxy {
 
   _respondToChallenge(challengeMsg) {
     const nonce = challengeMsg.nonce;
+    const params = this._buildConnectParams();
+
+    // Sign the nonce with Ed25519 private key if available
+    if (this.identity?.privateKeyPem) {
+      try {
+        const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
+        const signature = crypto.sign(null, Buffer.from(nonce), privateKey);
+        params.device = params.device || {};
+        params.device.nonce = nonce;
+        params.device.signature = signature.toString('base64');
+        params.device.signedAt = Date.now();
+      } catch (e) {
+        console.error('[gateway] Failed to sign challenge:', e.message);
+      }
+    }
+
     const connectReq = {
       type: 'req',
       id: `claw2boox-connect-${++this.requestId}`,
       method: 'connect',
-      params: {
-        minProtocol: 3,
-        maxProtocol: 3,
-        client: {
-          id: 'gateway-client',
-          version: '0.1.0',
-          platform: 'nodejs',
-          mode: 'backend',
-        },
-        role: 'operator',
-        scopes: ['operator.read'],
-        auth: this.password
-          ? { password: this.password }
-          : {},
-        device: {
-          id: 'claw2boox-device',
-          nonce,
-          signedAt: Date.now(),
-        },
-      },
+      params,
     };
-
-    // If password is set, sign the nonce
-    if (this.password) {
-      connectReq.params.device.signature = crypto
-        .createHmac('sha256', this.password)
-        .update(nonce)
-        .digest('hex');
-    }
 
     this.gateway.send(JSON.stringify(connectReq));
   }
 
   _scheduleReconnect() {
-    if (this.reconnectTimer) return;
+    if (this.reconnectTimer || this.fatalError) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connectToGateway().catch(() => {});
@@ -285,6 +341,7 @@ class GatewayProxy {
 
   getStatus() {
     if (this.fatalError === 'NOT_PAIRED') return 'not_paired';
+    if (this.fatalError) return 'error';
     if (this.authenticated) return 'connected';
     if (this.connected) return 'connecting';
     return 'disconnected';
