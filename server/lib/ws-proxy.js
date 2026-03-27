@@ -83,9 +83,33 @@ class GatewayProxy {
     // Auth: prefer device token from identity, then CLI flag, then password
     if (this.identity) {
       params.auth = { token: this.identity.token };
-      params.device = { id: this.identity.deviceId };
-      if (this.identity.publicKeyPem) {
-        params.device.publicKey = this.identity.publicKeyPem;
+
+      // Device identity with signed nonce (required by Gateway)
+      const nonce = crypto.randomBytes(32).toString('hex');
+      const signedAt = Date.now();
+      params.device = {
+        id: this.identity.deviceId,
+        nonce,
+        signedAt,
+      };
+
+      // Sign nonce with Ed25519 private key
+      if (this.identity.privateKeyPem) {
+        try {
+          const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
+          const payload = `${nonce}:${signedAt}`;
+          const signature = crypto.sign(null, Buffer.from(payload), privateKey);
+          params.device.signature = signature.toString('base64');
+        } catch (e) {
+          // Try signing just the nonce
+          try {
+            const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
+            const signature = crypto.sign(null, Buffer.from(nonce), privateKey);
+            params.device.signature = signature.toString('base64');
+          } catch (e2) {
+            console.error('[gateway] Failed to sign device identity:', e2.message);
+          }
+        }
       }
     } else if (this.deviceToken) {
       params.auth = { token: this.deviceToken };
