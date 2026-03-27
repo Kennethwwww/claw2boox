@@ -80,9 +80,9 @@ class GatewayProxy {
       scopes: ['operator.read'],
     };
 
-    // Auth: prefer device token from identity, then CLI flag, then password
+    // Auth: device identity uses signature auth (no token needed in auth field)
     if (this.identity) {
-      params.auth = { token: this.identity.token };
+      params.auth = {};
 
       // Device identity base fields (nonce + signature added by challenge handler)
       params.device = {
@@ -301,7 +301,7 @@ class GatewayProxy {
         const clientMode = params.client.mode;
         const role = params.role;
         const scopes = params.scopes.join(',');
-        const token = this.identity.token || '';
+        const token = ''; // auth uses device signature, not token
 
         const payload = ['v2', deviceId, clientId, clientMode, role, scopes, String(signedAt), token, challengeNonce].join('|');
 
