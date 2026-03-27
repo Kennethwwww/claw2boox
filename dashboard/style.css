@@ -8,8 +8,8 @@
 
 html {
   font-family: 'Noto Sans SC', 'Noto Sans', -apple-system, sans-serif;
-  font-size: 18px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.5;
   color: #000;
   background: #fff;
   -webkit-font-smoothing: none;
@@ -17,8 +17,10 @@ html {
 }
 
 body {
-  padding: 12px;
+  padding: 8px 10px;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 /* --- Header --- */
@@ -27,30 +29,69 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 3px solid #000;
-  padding-bottom: 8px;
-  margin-bottom: 12px;
+  border-bottom: 2px solid #000;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .header-title {
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 900;
   letter-spacing: -0.5px;
 }
 
-.header-meta {
-  font-size: 14px;
-  text-align: right;
+.header-status {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+#lastUpdate {
+  color: #555;
+}
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #000;
+  background: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.btn-icon:active {
+  background: #000;
+  color: #fff;
 }
 
 .status-dot {
   display: inline-block;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   border: 2px solid #000;
   vertical-align: middle;
-  margin-right: 4px;
 }
 
 .status-dot.online {
@@ -61,89 +102,135 @@ body {
   background: #fff;
 }
 
-/* --- Dashboard Grid --- */
+/* --- Quick Stats Bar --- */
 
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: auto 1fr;
-  gap: 12px;
-  height: calc(100vh - 80px);
-}
-
-/* Briefing panel spans full width on bottom */
-.panel--briefing {
-  grid-column: 1 / -1;
-}
-
-@media (max-width: 900px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-    height: auto;
-  }
-  .panel--briefing {
-    grid-column: 1;
-  }
-}
-
-/* --- Panel --- */
-
-.panel {
+.stats-bar {
+  display: flex;
+  align-items: center;
   border: 2px solid #000;
-  padding: 12px;
-  overflow-y: auto;
+  padding: 6px 0;
+  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
-.panel-title {
-  font-size: 20px;
+.stat-item {
+  flex: 1;
+  text-align: center;
+}
+
+.stat-label {
+  font-size: 11px;
+  display: block;
+  line-height: 1.2;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 900;
+  display: block;
+  line-height: 1.2;
+}
+
+.stat-divider {
+  width: 1px;
+  height: 28px;
+  background: #000;
+  flex-shrink: 0;
+}
+
+/* --- Compact Sections --- */
+
+.section-compact {
+  border: 2px solid #000;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.section-header {
+  font-size: 15px;
   font-weight: 700;
-  border-bottom: 2px solid #000;
-  padding-bottom: 6px;
-  margin-bottom: 10px;
+  padding: 6px 10px;
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-}
-
-.panel-title .count {
-  font-size: 14px;
-  font-weight: 400;
-}
-
-/* --- Lists --- */
-
-.item-list {
-  list-style: none;
-}
-
-.item-list li {
-  padding: 8px 0;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
   border-bottom: 1px solid #000;
 }
 
-.item-list li:last-child {
+.section-header .count {
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.toggle-arrow {
+  font-size: 12px;
+  transition: none;
+}
+
+.section-body {
+  padding: 4px 10px;
+}
+
+.section-body.collapsed {
+  display: none;
+}
+
+/* --- Briefing Section (main area, fills remaining space) --- */
+
+.section-briefing {
+  border: 2px solid #000;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.section-briefing .section-header {
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.section-briefing #briefingList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px;
+}
+
+/* --- Node List (compact) --- */
+
+.node-list {
+  list-style: none;
+}
+
+.node-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid #ccc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.node-list li:last-child {
   border-bottom: none;
 }
 
-.item-name {
+.node-name {
   font-weight: 700;
-  font-size: 17px;
 }
 
-.item-detail {
-  font-size: 14px;
-  margin-top: 2px;
-}
-
-.item-status {
-  font-size: 13px;
-  font-weight: 700;
+.node-detail {
+  font-size: 12px;
+  color: #555;
 }
 
 /* --- Briefing Messages --- */
 
 .briefing-item {
-  padding: 10px 0;
+  padding: 8px 0;
   border-bottom: 1px solid #000;
 }
 
@@ -152,26 +239,148 @@ body {
 }
 
 .briefing-time {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .briefing-content {
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 /* --- Empty state --- */
 
-.empty-state {
+.empty-state-sm {
   text-align: center;
-  padding: 24px;
+  padding: 10px;
+  font-size: 13px;
+  border: 1px dashed #999;
+  margin: 4px 0;
+  color: #555;
+}
+
+/* --- Menu Overlay --- */
+
+.menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.menu-overlay.visible {
+  display: flex;
+}
+
+.menu-panel {
+  border: 3px solid #000;
+  background: #fff;
+  padding: 16px;
+  width: 280px;
+  max-width: 90vw;
+}
+
+.menu-title {
+  font-size: 18px;
+  font-weight: 900;
+  text-align: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #000;
+}
+
+.menu-btn {
+  display: block;
+  width: 100%;
   font-size: 16px;
-  border: 1px dashed #000;
-  margin: 12px 0;
+  font-weight: 700;
+  padding: 12px;
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  cursor: pointer;
+  text-align: left;
+  margin-bottom: 6px;
+}
+
+.menu-btn:active {
+  background: #000;
+  color: #fff;
+}
+
+.menu-btn--danger {
+  border-style: dashed;
+}
+
+.menu-btn--danger:active {
+  background: #000;
+  color: #fff;
+}
+
+.menu-divider {
+  border: none;
+  border-top: 1px solid #ccc;
+  margin: 8px 0;
+}
+
+/* --- Refresh indicator --- */
+
+.refresh-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #000;
+  color: #fff;
+  text-align: center;
+  font-size: 12px;
+  padding: 3px;
+  display: none;
+  z-index: 50;
+}
+
+.refresh-bar.visible {
+  display: block;
+}
+
+/* --- Portrait optimization (most BOOX devices) --- */
+
+@media (max-width: 600px) {
+  body {
+    padding: 6px 8px;
+  }
+  .header-title {
+    font-size: 20px;
+  }
+  .stat-value {
+    font-size: 16px;
+  }
+}
+
+/* --- Landscape / large BOOX tablets --- */
+
+@media (min-width: 1000px) {
+  html {
+    font-size: 18px;
+  }
+  .header-title {
+    font-size: 26px;
+  }
+  .stat-value {
+    font-size: 22px;
+  }
+  .briefing-content {
+    font-size: 17px;
+  }
 }
 
 /* --- Pairing Page --- */
@@ -269,34 +478,4 @@ body {
   border: 3px solid #000;
   background: #000;
   color: #fff;
-}
-
-/* --- Refresh indicator --- */
-
-.refresh-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: #000;
-  color: #fff;
-  text-align: center;
-  font-size: 13px;
-  padding: 4px;
-  display: none;
-}
-
-.refresh-bar.visible {
-  display: block;
-}
-
-/* --- Landscape optimization for BOOX Tab Ultra / Tab X --- */
-
-@media (min-width: 1400px) {
-  html {
-    font-size: 20px;
-  }
-  .header-title {
-    font-size: 30px;
-  }
 }

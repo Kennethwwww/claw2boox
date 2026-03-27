@@ -8,48 +8,78 @@
   <link rel="stylesheet" href="/dashboard/style.css">
 </head>
 <body>
+  <!-- Header -->
   <header class="header">
-    <div class="header-title">OpenClaw</div>
-    <div class="header-meta">
-      <div><span class="status-dot" id="statusDot"></span><span id="statusText">连接中...</span></div>
-      <div id="lastUpdate">--</div>
+    <div class="header-left">
+      <span class="header-title">OpenClaw</span>
+      <span class="header-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">连接中...</span>
+      </span>
+    </div>
+    <div class="header-right">
+      <span id="lastUpdate">--</span>
+      <button class="btn-icon" id="btnRefresh" title="刷新">&#x21bb;</button>
+      <button class="btn-icon" id="btnMenu" title="菜单">&#x2630;</button>
     </div>
   </header>
 
-  <main class="dashboard-grid">
-    <!-- Status Panel -->
-    <section class="panel panel--status">
-      <div class="panel-title">
-        <span>系统状态</span>
-      </div>
-      <ul class="item-list" id="statusList">
-        <li class="empty-state">加载中...</li>
+  <!-- Quick Stats Bar (compact) -->
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-item">
+      <span class="stat-label">会话</span>
+      <span class="stat-value" id="statSessions">--</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-label">节点</span>
+      <span class="stat-value" id="statNodes">--</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-label">Gateway</span>
+      <span class="stat-value" id="statGateway">--</span>
+    </div>
+  </div>
+
+  <!-- Nodes (collapsible, compact) -->
+  <section class="section-compact" id="nodesSection">
+    <div class="section-header" id="nodesToggle">
+      <span>设备节点 <span class="count" id="nodeCount"></span></span>
+      <span class="toggle-arrow" id="nodesArrow">&#x25BC;</span>
+    </div>
+    <div class="section-body" id="nodesBody">
+      <ul class="node-list" id="nodeList">
+        <li class="empty-state-sm">加载中...</li>
       </ul>
-    </section>
+    </div>
+  </section>
 
-    <!-- Nodes Panel -->
-    <section class="panel panel--nodes">
-      <div class="panel-title">
-        <span>设备节点</span>
-        <span class="count" id="nodeCount"></span>
-      </div>
-      <ul class="item-list" id="nodeList">
-        <li class="empty-state">加载中...</li>
-      </ul>
-    </section>
+  <!-- Briefing (main content, takes remaining space) -->
+  <section class="section-briefing">
+    <div class="section-header">
+      <span>信息简报 <span class="count" id="briefingCount"></span></span>
+    </div>
+    <div id="briefingList">
+      <div class="empty-state-sm">暂无简报</div>
+    </div>
+  </section>
 
-    <!-- Briefing Panel (full width) -->
-    <section class="panel panel--briefing">
-      <div class="panel-title">
-        <span>信息简报</span>
-        <span class="count" id="briefingCount"></span>
-      </div>
-      <div id="briefingList">
-        <div class="empty-state">暂无简报</div>
-      </div>
-    </section>
-  </main>
+  <!-- Menu Overlay -->
+  <div class="menu-overlay" id="menuOverlay">
+    <div class="menu-panel">
+      <div class="menu-title">操作菜单</div>
+      <button class="menu-btn" id="menuRefresh">&#x21bb; 刷新数据</button>
+      <button class="menu-btn" id="menuReconnect">&#x21af; 重新连接 Gateway</button>
+      <button class="menu-btn" id="menuDisconnect">&#x2715; 断开连接</button>
+      <hr class="menu-divider">
+      <button class="menu-btn menu-btn--danger" id="menuUnpair">&#x26a0; 取消配对</button>
+      <hr class="menu-divider">
+      <button class="menu-btn" id="menuClose">关闭</button>
+    </div>
+  </div>
 
+  <!-- Refresh indicator -->
   <div class="refresh-bar" id="refreshBar">正在刷新...</div>
 
   <script src="/dashboard/js/utils/eink.js"></script>

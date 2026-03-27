@@ -34,67 +34,88 @@
   NodesPanel.init();
   BriefingPanel.init();
 
+  // DOM elements
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
   const lastUpdate = document.getElementById('lastUpdate');
   const refreshBar = document.getElementById('refreshBar');
+  const menuOverlay = document.getElementById('menuOverlay');
 
-  // HTTP API helper
+  // --- HTTP API helper ---
+
   async function apiFetch(path) {
-    const res = await fetch(path, {
+    const sep = path.includes('?') ? '&' : '?';
+    const res = await fetch(path + sep + 'token=' + encodeURIComponent(token), {
       headers: { 'X-Device-Token': token },
     });
     if (res.status === 401) {
-      localStorage.removeItem(TOKEN_KEY);
+      try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
       location.href = '/pair';
       return null;
     }
     return res.json();
   }
 
-  // Refresh all data via HTTP API (more reliable than WS for periodic updates)
-  let refreshInterval = 300000; // default 5min, overridden by config
+  // --- Refresh ---
+
+  let refreshInterval = 300000;
+  let refreshTimer = null;
+  let isRefreshing = false;
 
   async function refreshAll() {
+    if (isRefreshing) return;
+    isRefreshing = true;
     refreshBar.classList.add('visible');
 
     try {
       const [statusData, briefingData] = await Promise.all([
-        apiFetch('/api/status?token=' + encodeURIComponent(token)),
-        apiFetch('/api/briefings?token=' + encodeURIComponent(token)),
+        apiFetch('/api/status'),
+        apiFetch('/api/briefings'),
       ]);
 
       if (statusData) {
         StatusPanel.render(statusData);
         NodesPanel.render(statusData.nodes);
 
-        statusDot.className = 'status-dot ' + (statusData.gateway_connected ? 'online' : 'offline');
-        statusText.textContent = statusData.gateway_connected ? '已连接' : '未连接';
+        const connected = statusData.gateway_connected;
+        statusDot.className = 'status-dot ' + (connected ? 'online' : 'offline');
+        statusText.textContent = connected ? '已连接' : '未连接';
       }
 
       if (briefingData) {
         BriefingPanel.render(briefingData.messages);
       }
 
-      lastUpdate.textContent = '更新: ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      lastUpdate.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     } catch (err) {
       StatusPanel.renderError();
       statusDot.className = 'status-dot offline';
       statusText.textContent = '离线';
     }
 
-    setTimeout(() => {
-      refreshBar.classList.remove('visible');
-    }, 1000);
+    isRefreshing = false;
+    setTimeout(() => refreshBar.classList.remove('visible'), 800);
   }
 
-  // WebSocket for real-time events
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    refreshTimer = setInterval(refreshAll, refreshInterval);
+  }
+
+  function stopAutoRefresh() {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+  }
+
+  // --- WebSocket ---
+
   const wsClient = new ClawWSClient(token);
 
   wsClient.on('connected', () => {
     statusDot.className = 'status-dot online';
     statusText.textContent = '已连接';
-    // Refresh data on reconnect (e.g., after BOOX wakes from sleep)
     refreshAll();
   });
 
@@ -103,26 +124,90 @@
     statusText.textContent = '重连中...';
   });
 
-  // Handle real-time events from gateway
   wsClient.on('message', (msg) => {
     if (msg.type === 'event' || msg.type === 'notification') {
-      // Trigger a refresh when we get a push event
       refreshAll();
     }
   });
 
-  // Handle visibility change (BOOX sleep/wake)
+  // --- Visibility change (BOOX sleep/wake) ---
+
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       wsClient.connect();
       refreshAll();
+      startAutoRefresh();
     }
   });
 
-  // Load config and start
+  // --- Menu ---
+
+  function showMenu() {
+    menuOverlay.classList.add('visible');
+  }
+
+  function hideMenu() {
+    menuOverlay.classList.remove('visible');
+  }
+
+  document.getElementById('btnMenu').addEventListener('click', showMenu);
+  document.getElementById('menuClose').addEventListener('click', hideMenu);
+  menuOverlay.addEventListener('click', (e) => {
+    if (e.target === menuOverlay) hideMenu();
+  });
+
+  // Refresh button (header)
+  document.getElementById('btnRefresh').addEventListener('click', () => {
+    refreshAll();
+  });
+
+  // Menu: Refresh
+  document.getElementById('menuRefresh').addEventListener('click', () => {
+    hideMenu();
+    refreshAll();
+  });
+
+  // Menu: Reconnect
+  document.getElementById('menuReconnect').addEventListener('click', () => {
+    hideMenu();
+    statusText.textContent = '重连中...';
+    statusDot.className = 'status-dot offline';
+    wsClient.close();
+    setTimeout(() => {
+      wsClient.connect();
+      refreshAll();
+    }, 500);
+  });
+
+  // Menu: Disconnect
+  document.getElementById('menuDisconnect').addEventListener('click', () => {
+    hideMenu();
+    wsClient.close();
+    stopAutoRefresh();
+    statusDot.className = 'status-dot offline';
+    statusText.textContent = '已断开';
+    lastUpdate.textContent = '手动断开';
+  });
+
+  // Menu: Unpair
+  document.getElementById('menuUnpair').addEventListener('click', () => {
+    if (!confirm('确认取消配对？设备将需要重新配对才能使用。')) return;
+    hideMenu();
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    // Notify native bridge
+    try {
+      if (window.Claw2Boox && window.Claw2Boox.onUnpaired) {
+        window.Claw2Boox.onUnpaired();
+      }
+    } catch (e) {}
+    location.href = '/pair';
+  });
+
+  // --- Init ---
+
   async function init() {
     try {
-      const config = await apiFetch('/api/config?token=' + encodeURIComponent(token));
+      const config = await apiFetch('/api/config');
       if (config) {
         refreshInterval = config.refresh_interval_ms || refreshInterval;
       }
@@ -130,14 +215,9 @@
       // Use defaults
     }
 
-    // Initial load
     await refreshAll();
-
-    // Connect WebSocket
     wsClient.connect();
-
-    // Periodic refresh
-    setInterval(refreshAll, refreshInterval);
+    startAutoRefresh();
   }
 
   init();
