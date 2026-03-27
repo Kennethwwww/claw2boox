@@ -84,33 +84,11 @@ class GatewayProxy {
     if (this.identity) {
       params.auth = { token: this.identity.token };
 
-      // Device identity with signed nonce (required by Gateway)
-      const nonce = crypto.randomBytes(32).toString('hex');
-      const signedAt = Date.now();
+      // Device identity (required by Gateway)
       params.device = {
         id: this.identity.deviceId,
-        nonce,
-        signedAt,
+        publicKey: this.identity.publicKeyPem,
       };
-
-      // Sign nonce with Ed25519 private key
-      if (this.identity.privateKeyPem) {
-        try {
-          const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
-          const payload = `${nonce}:${signedAt}`;
-          const signature = crypto.sign(null, Buffer.from(payload), privateKey);
-          params.device.signature = signature.toString('base64');
-        } catch (e) {
-          // Try signing just the nonce
-          try {
-            const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
-            const signature = crypto.sign(null, Buffer.from(nonce), privateKey);
-            params.device.signature = signature.toString('base64');
-          } catch (e2) {
-            console.error('[gateway] Failed to sign device identity:', e2.message);
-          }
-        }
-      }
     } else if (this.deviceToken) {
       params.auth = { token: this.deviceToken };
     } else if (this.password) {
@@ -191,13 +169,17 @@ class GatewayProxy {
           }
         }
 
-        // Fatal: invalid connect params — don't retry
+        // Invalid connect params — log but allow retry (challenge flow may fix it)
         if (reasonStr.includes('invalid connect params')) {
-          if (this.consecutiveFailures <= 1) {
-            console.log('[gateway] Invalid connect params — protocol mismatch');
+          if (this.consecutiveFailures <= 2) {
+            console.log('[gateway] Invalid connect params:', reasonStr);
           }
-          this.fatalError = 'INVALID_PARAMS';
-          return;
+          // Only fatal after multiple retries
+          if (this.consecutiveFailures >= 5) {
+            this.fatalError = 'INVALID_PARAMS';
+            console.log('[gateway] Giving up after repeated invalid connect params');
+            return;
+          }
         }
 
         if (this.consecutiveFailures >= 3 && this.consecutiveFailures % 10 === 0) {
@@ -247,7 +229,8 @@ class GatewayProxy {
       }
 
       // Handle challenge-response flow
-      if (msg.method === 'connect.challenge' || (msg.type === 'msg' && msg.nonce)) {
+      // Gateway sends: {type:"event", event:"connect.challenge", payload:{nonce, ts}}
+      if (msg.event === 'connect.challenge' || msg.method === 'connect.challenge' || (msg.type === 'msg' && msg.nonce)) {
         this._respondToChallenge(msg);
         return;
       }
@@ -290,18 +273,38 @@ class GatewayProxy {
   }
 
   _respondToChallenge(challengeMsg) {
-    const nonce = challengeMsg.nonce;
+    // Extract nonce from various formats
+    const nonce = challengeMsg.payload?.nonce || challengeMsg.nonce;
+    const ts = challengeMsg.payload?.ts || Date.now();
+
+    if (!nonce) {
+      console.error('[gateway] Challenge received but no nonce found:', JSON.stringify(challengeMsg).substring(0, 200));
+      return;
+    }
+
+    console.log('[gateway] Responding to challenge, nonce:', nonce.substring(0, 16) + '...');
+
     const params = this._buildConnectParams();
 
-    // Sign the nonce with Ed25519 private key if available
+    // Sign the challenge nonce with Ed25519 private key
     if (this.identity?.privateKeyPem) {
       try {
         const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
-        const signature = crypto.sign(null, Buffer.from(nonce), privateKey);
+        const signedAt = Date.now();
+
+        // Try signing nonce:signedAt first, then just nonce
+        let signature;
+        try {
+          const payload = `${nonce}:${signedAt}`;
+          signature = crypto.sign(null, Buffer.from(payload), privateKey);
+        } catch (e) {
+          signature = crypto.sign(null, Buffer.from(nonce), privateKey);
+        }
+
         params.device = params.device || {};
         params.device.nonce = nonce;
+        params.device.signedAt = signedAt;
         params.device.signature = signature.toString('base64');
-        params.device.signedAt = Date.now();
       } catch (e) {
         console.error('[gateway] Failed to sign challenge:', e.message);
       }
