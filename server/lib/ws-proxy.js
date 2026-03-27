@@ -11,10 +11,13 @@ const os = require('os');
 function loadGatewayToken() {
   // 1. Environment variable
   if (process.env.OPENCLAW_GATEWAY_TOKEN) {
-    return process.env.OPENCLAW_GATEWAY_TOKEN;
+    return { type: 'token', value: process.env.OPENCLAW_GATEWAY_TOKEN };
   }
   if (process.env.CLAWDBOT_GATEWAY_TOKEN) {
-    return process.env.CLAWDBOT_GATEWAY_TOKEN;
+    return { type: 'token', value: process.env.CLAWDBOT_GATEWAY_TOKEN };
+  }
+  if (process.env.GATEWAY_PASSWORD) {
+    return { type: 'password', value: process.env.GATEWAY_PASSWORD };
   }
 
   // 2. Config file
@@ -22,9 +25,13 @@ function loadGatewayToken() {
   try {
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      // Try gateway.auth.token first, then gateway.remote.token
-      const token = config.gateway?.auth?.token || config.gateway?.remote?.token;
-      if (token) return token;
+      const gw = config.gateway || {};
+
+      // Check auth.token, remote.token, auth.password, remote.password
+      if (gw.auth?.token) return { type: 'token', value: gw.auth.token };
+      if (gw.remote?.token) return { type: 'token', value: gw.remote.token };
+      if (gw.auth?.password) return { type: 'password', value: gw.auth.password };
+      if (gw.remote?.password) return { type: 'password', value: gw.remote.password };
     }
   } catch (e) {}
 
@@ -80,10 +87,18 @@ class GatewayProxy {
     this.lastStatus = null;
     this.fatalError = null;
 
-    // Auto-detect OpenClaw gateway token
-    this.gatewayToken = loadGatewayToken();
-    if (this.gatewayToken) {
-      console.log(`[gateway] Found gateway auth token: ${this.gatewayToken.substring(0, 8)}...`);
+    // Auto-detect OpenClaw gateway auth (token or password)
+    const gwAuth = loadGatewayToken();
+    this.gatewayToken = null;
+    this.gatewayPassword = null;
+    if (gwAuth) {
+      if (gwAuth.type === 'token') {
+        this.gatewayToken = gwAuth.value;
+        console.log(`[gateway] Found gateway auth token: ${gwAuth.value.substring(0, 8)}...`);
+      } else {
+        this.gatewayPassword = gwAuth.value;
+        console.log(`[gateway] Found gateway password from config`);
+      }
     }
 
     // Auto-detect OpenClaw identity
@@ -97,6 +112,20 @@ class GatewayProxy {
     this.maxReconnectDelay = 120000;
     this.currentDelay = this.reconnectDelay;
     this.consecutiveFailures = 0;
+  }
+
+  /**
+   * Determine auth mode:
+   * - 'password': gateway password provided → simple auth, send connect immediately
+   * - 'token': gateway token found → token auth, send connect immediately
+   * - 'device': device identity only → challenge-response with signature
+   * - 'none': no auth available
+   */
+  _getAuthMode() {
+    if (this.password || this.gatewayPassword) return 'password';
+    if (this.gatewayToken) return 'token';
+    if (this.identity) return 'device';
+    return 'none';
   }
 
   _buildConnectParams() {
@@ -113,21 +142,22 @@ class GatewayProxy {
       scopes: ['operator.read'],
     };
 
-    // Auth: gateway token required, device identity uses signature for device auth
-    if (this.identity) {
-      params.auth = this.gatewayToken ? { token: this.gatewayToken } : {};
+    const authMode = this._getAuthMode();
 
-      // Device identity base fields (nonce + signature added by challenge handler)
+    if (authMode === 'password') {
+      params.auth = { password: this.password || this.gatewayPassword };
+    } else if (authMode === 'token') {
+      params.auth = { token: this.gatewayToken };
+    } else {
+      params.auth = {};
+    }
+
+    // Add device identity if available (for device auth or enrichment)
+    if (this.identity) {
       params.device = {
         id: this.identity.deviceId,
         publicKey: this.identity.publicKeyPem,
       };
-    } else if (this.deviceToken) {
-      params.auth = { token: this.deviceToken };
-    } else if (this.password) {
-      params.auth = { password: this.password };
-    } else {
-      params.auth = {};
     }
 
     return params;
@@ -155,7 +185,33 @@ class GatewayProxy {
         this.connected = true;
         this.currentDelay = this.reconnectDelay;
         this.consecutiveFailures = 0;
-        console.log('[gateway] Connected to OpenClaw — waiting for challenge...');
+
+        const authMode = this._getAuthMode();
+
+        if (authMode === 'password' || authMode === 'token') {
+          // Password/token auth: send connect immediately (no challenge needed)
+          console.log(`[gateway] Connected — authenticating with ${authMode}...`);
+          const connectReq = {
+            type: 'req',
+            id: `claw2boox-connect-${++this.requestId}`,
+            method: 'connect',
+            params: this._buildConnectParams(),
+          };
+          this.gateway.send(JSON.stringify(connectReq));
+        } else if (authMode === 'device') {
+          // Device identity auth: wait for challenge
+          console.log('[gateway] Connected — waiting for challenge...');
+        } else {
+          console.log('[gateway] Connected — no auth configured, sending connect...');
+          const connectReq = {
+            type: 'req',
+            id: `claw2boox-connect-${++this.requestId}`,
+            method: 'connect',
+            params: this._buildConnectParams(),
+          };
+          this.gateway.send(JSON.stringify(connectReq));
+        }
+
         resolve();
       });
 
