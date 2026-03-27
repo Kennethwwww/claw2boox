@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const crypto = require('crypto');
 
 class GatewayProxy {
   constructor(gatewayUrl, options = {}) {
@@ -15,7 +16,7 @@ class GatewayProxy {
 
     // Exponential backoff
     this.reconnectDelay = 5000;
-    this.maxReconnectDelay = 120000; // 2 min max
+    this.maxReconnectDelay = 120000;
     this.currentDelay = this.reconnectDelay;
     this.consecutiveFailures = 0;
   }
@@ -27,7 +28,6 @@ class GatewayProxy {
         return;
       }
 
-      // Clean up previous connection
       if (this.gateway) {
         try { this.gateway.removeAllListeners(); this.gateway.close(); } catch (e) {}
       }
@@ -36,49 +36,54 @@ class GatewayProxy {
 
       this.gateway.on('open', () => {
         this.connected = true;
-        this.currentDelay = this.reconnectDelay; // Reset backoff on success
+        this.currentDelay = this.reconnectDelay;
         this.consecutiveFailures = 0;
+        console.log('[gateway] Connected to OpenClaw');
 
-        if (this.consecutiveFailures === 0) {
-          console.log('[gateway] Connected to OpenClaw');
-        }
-
-        // Step 1: Send connect params — wait for gateway's response before considering "authenticated"
-        const connectParams = {
-          type: 'connect',
-          role: 'operator',
-          scopes: ['operator.read'],
+        // Send connect request using the correct OpenClaw protocol format
+        const connectReq = {
+          type: 'req',
+          id: `claw2boox-connect-${++this.requestId}`,
+          method: 'connect',
+          params: {
+            minProtocol: 3,
+            maxProtocol: 3,
+            client: {
+              id: 'claw2boox',
+              version: '0.1.0',
+              platform: 'nodejs',
+              mode: 'operator',
+            },
+            role: 'operator',
+            scopes: ['operator.read'],
+            auth: this.password
+              ? { password: this.password }
+              : {},
+          },
         };
-        if (this.password) {
-          connectParams.password = this.password;
-        }
-        this.gateway.send(JSON.stringify(connectParams));
+
+        this.gateway.send(JSON.stringify(connectReq));
         resolve();
       });
 
       this.gateway.on('message', (data) => {
-        const msg = data.toString();
-        this._handleGatewayMessage(msg);
+        this._handleGatewayMessage(data.toString());
       });
 
       this.gateway.on('close', (code, reason) => {
-        const wasAuthenticated = this.authenticated;
         this.connected = false;
         this.authenticated = false;
         this.consecutiveFailures++;
 
-        // Only log meaningful close events, not the reconnect spam
         if (this.consecutiveFailures <= 1) {
           const reasonStr = reason ? reason.toString() : '';
           console.log(`[gateway] Connection closed (code: ${code}${reasonStr ? ', reason: ' + reasonStr : ''})`);
 
           if (code === 1008 || code === 4001 || code === 4003) {
-            console.log('[gateway] Authentication failed — check your --password flag or GATEWAY_PASSWORD env var');
-          } else if (code === 1006) {
-            console.log('[gateway] Connection lost unexpectedly — gateway may have restarted');
+            console.log('[gateway] Protocol/auth error — check Gateway password and protocol version');
           }
         } else if (this.consecutiveFailures === 3) {
-          console.log(`[gateway] Repeated connection failures. Backing off. (retry every ${Math.round(this.currentDelay / 1000)}s)`);
+          console.log(`[gateway] Repeated failures. Backing off (retry every ${Math.round(this.currentDelay / 1000)}s)`);
         }
 
         this._scheduleReconnect();
@@ -86,7 +91,6 @@ class GatewayProxy {
 
       this.gateway.on('error', (err) => {
         this.connected = false;
-        // Only log the first error, not every reconnect attempt
         if (this.consecutiveFailures <= 0) {
           console.error('[gateway] Connection error:', err.message);
         }
@@ -99,23 +103,35 @@ class GatewayProxy {
     try {
       const msg = JSON.parse(rawMsg);
 
-      // Detect successful authentication
-      if (msg.type === 'hello-ok' || msg.type === 'connected' || msg.type === 'welcome') {
+      // Handle connect response (hello-ok)
+      if (msg.type === 'res' && msg.ok && msg.payload && msg.payload.type === 'hello-ok') {
         this.authenticated = true;
-        console.log('[gateway] Authenticated successfully');
+        console.log('[gateway] Authenticated successfully (protocol v' + (msg.payload.protocol || '?') + ')');
+        return;
       }
 
-      // Handle nonce challenge (OpenClaw auth protocol)
-      if (msg.type === 'challenge' && msg.nonce) {
+      // Also handle simpler success responses to our connect request
+      if (msg.type === 'res' && msg.ok && msg.id && msg.id.startsWith('claw2boox-connect')) {
+        this.authenticated = true;
+        console.log('[gateway] Authenticated successfully');
+        return;
+      }
+
+      // Handle challenge-response flow
+      if (msg.method === 'connect.challenge' || (msg.type === 'msg' && msg.nonce)) {
         this._respondToChallenge(msg);
         return;
       }
 
-      // Handle auth errors
-      if (msg.type === 'error' && msg.error) {
-        console.error('[gateway] Server error:', msg.error);
-        if (msg.error.includes('auth') || msg.error.includes('password') || msg.error.includes('denied')) {
-          console.error('[gateway] → Check your --password flag');
+      // Handle error responses
+      if (msg.type === 'res' && !msg.ok) {
+        const errMsg = msg.error || msg.payload?.error || 'unknown error';
+        console.error('[gateway] Request failed:', errMsg);
+        // Still resolve pending requests so they don't hang
+        if (msg.id && this.pendingRequests.has(msg.id)) {
+          const { resolve } = this.pendingRequests.get(msg.id);
+          this.pendingRequests.delete(msg.id);
+          resolve(msg);
         }
         return;
       }
@@ -127,17 +143,16 @@ class GatewayProxy {
         resolve(msg);
       }
 
-      // Forward all messages to connected BOOX client
+      // Forward events and other messages to connected BOOX client
       if (this.client && this.client.readyState === WebSocket.OPEN) {
         this.client.send(rawMsg);
       }
 
       // Cache status updates
-      if (msg.type === 'status' || msg.method === 'status') {
+      if (msg.type === 'event' && (msg.event === 'status' || msg.event === 'state')) {
         this.lastStatus = msg;
       }
     } catch (e) {
-      // Forward raw messages too
       if (this.client && this.client.readyState === WebSocket.OPEN) {
         this.client.send(rawMsg);
       }
@@ -145,32 +160,49 @@ class GatewayProxy {
   }
 
   _respondToChallenge(challengeMsg) {
-    // OpenClaw uses nonce-based challenge-response
-    // For read-only operator, respond with the nonce signed by password
-    const crypto = require('crypto');
-    const response = {
-      type: 'challenge-response',
-      nonce: challengeMsg.nonce,
+    const nonce = challengeMsg.nonce;
+    const connectReq = {
+      type: 'req',
+      id: `claw2boox-connect-${++this.requestId}`,
+      method: 'connect',
+      params: {
+        minProtocol: 3,
+        maxProtocol: 3,
+        client: {
+          id: 'claw2boox',
+          version: '0.1.0',
+          platform: 'nodejs',
+          mode: 'operator',
+        },
+        role: 'operator',
+        scopes: ['operator.read'],
+        auth: this.password
+          ? { password: this.password }
+          : {},
+        device: {
+          id: 'claw2boox-device',
+          nonce,
+          signedAt: Date.now(),
+        },
+      },
     };
 
+    // If password is set, sign the nonce
     if (this.password) {
-      response.signature = crypto
+      connectReq.params.device.signature = crypto
         .createHmac('sha256', this.password)
-        .update(challengeMsg.nonce)
+        .update(nonce)
         .digest('hex');
     }
 
-    this.gateway.send(JSON.stringify(response));
+    this.gateway.send(JSON.stringify(connectReq));
   }
 
   _scheduleReconnect() {
     if (this.reconnectTimer) return;
-
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connectToGateway().catch(() => {});
-
-      // Exponential backoff
       this.currentDelay = Math.min(this.currentDelay * 1.5, this.maxReconnectDelay);
     }, this.currentDelay);
   }
@@ -214,7 +246,6 @@ class GatewayProxy {
       }
     });
 
-    // Send cached status immediately
     if (this.lastStatus) {
       clientWs.send(JSON.stringify(this.lastStatus));
     }
