@@ -30,6 +30,18 @@ const server = http.createServer(app);
 
 app.use(express.json());
 
+// --- CORS (needed for BOOX WebView which loads local HTML making cross-origin requests) ---
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, X-Device-Token, X-Admin-Token');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // --- Auth middleware ---
 
 function requireDevice(req, res, next) {

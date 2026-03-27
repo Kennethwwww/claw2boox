@@ -41,6 +41,8 @@ class GatewayProxy {
         console.log('[gateway] Connected to OpenClaw');
 
         // Send connect request using the correct OpenClaw protocol format
+        // client.id must be one of: cli, gateway-client, webchat, node-host, etc.
+        // client.mode must be one of: cli, ui, backend, node, webchat, probe, test
         const connectReq = {
           type: 'req',
           id: `claw2boox-connect-${++this.requestId}`,
@@ -49,10 +51,10 @@ class GatewayProxy {
             minProtocol: 3,
             maxProtocol: 3,
             client: {
-              id: 'claw2boox',
+              id: 'gateway-client',
               version: '0.1.0',
               platform: 'nodejs',
-              mode: 'operator',
+              mode: 'backend',
             },
             role: 'operator',
             scopes: ['operator.read'],
@@ -169,10 +171,10 @@ class GatewayProxy {
         minProtocol: 3,
         maxProtocol: 3,
         client: {
-          id: 'claw2boox',
+          id: 'gateway-client',
           version: '0.1.0',
           platform: 'nodejs',
-          mode: 'operator',
+          mode: 'backend',
         },
         role: 'operator',
         scopes: ['operator.read'],
