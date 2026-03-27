@@ -1,56 +1,57 @@
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
-const Database = require('better-sqlite3');
 
-const DB_PATH = path.join(
-  process.env.CLAW2BOOX_DATA_DIR || path.join(require('os').homedir(), '.claw2boox'),
-  'claw2boox.db'
-);
+const DATA_DIR = process.env.CLAW2BOOX_DATA_DIR || path.join(require('os').homedir(), '.claw2boox');
+const DATA_FILE = path.join(DATA_DIR, 'data.json');
 const PAIR_CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_DEVICES = 1; // Current limit: 1 device. Change this to support multiple.
 
-let db;
+// In-memory store, persisted to JSON file
+let store = {
+  devices: [],    // { id, token, manufacturer, model, serial_hash, display_name, paired_at, last_seen_at }
+  pairCodes: [],  // { code, created_at, used }
+};
+
+function load() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      store = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+      // Ensure arrays exist (backward compat)
+      if (!Array.isArray(store.devices)) store.devices = [];
+      if (!Array.isArray(store.pairCodes)) store.pairCodes = [];
+    }
+  } catch (e) {
+    console.warn('[pairing] Could not load data file, starting fresh:', e.message);
+    store = { devices: [], pairCodes: [] };
+  }
+}
+
+function save() {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[pairing] Failed to save data:', e.message);
+  }
+}
 
 function initDB() {
-  const fs = require('fs');
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-
-  db = new Database(DB_PATH);
-  db.pragma('journal_mode = WAL');
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS devices (
-      id TEXT PRIMARY KEY,
-      token TEXT UNIQUE NOT NULL,
-      manufacturer TEXT NOT NULL,
-      model TEXT NOT NULL,
-      serial_hash TEXT NOT NULL,
-      display_name TEXT,
-      paired_at TEXT NOT NULL,
-      last_seen_at TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS pair_codes (
-      code TEXT PRIMARY KEY,
-      created_at INTEGER NOT NULL,
-      used INTEGER DEFAULT 0
-    );
-  `);
-
-  // Clean up expired pair codes on startup
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  load();
   cleanExpiredCodes();
 }
 
 function cleanExpiredCodes() {
   const cutoff = Date.now() - PAIR_CODE_TTL_MS;
-  db.prepare('DELETE FROM pair_codes WHERE created_at < ?').run(cutoff);
+  const before = store.pairCodes.length;
+  store.pairCodes = store.pairCodes.filter((c) => c.created_at >= cutoff);
+  if (store.pairCodes.length !== before) save();
 }
 
 function generatePairCode() {
   cleanExpiredCodes();
 
-  const devices = db.prepare('SELECT COUNT(*) as count FROM devices').get();
-  if (devices.count >= MAX_DEVICES) {
+  if (store.devices.length >= MAX_DEVICES) {
     return { error: `Maximum paired devices reached (${MAX_DEVICES}). Unpair a device first.` };
   }
 
@@ -58,9 +59,10 @@ function generatePairCode() {
   const code = String(crypto.randomInt(100000, 999999));
 
   // Invalidate any existing unused codes
-  db.prepare('DELETE FROM pair_codes WHERE used = 0').run();
+  store.pairCodes = store.pairCodes.filter((c) => c.used);
 
-  db.prepare('INSERT INTO pair_codes (code, created_at) VALUES (?, ?)').run(code, Date.now());
+  store.pairCodes.push({ code, created_at: Date.now(), used: false });
+  save();
 
   return { code, expires_in_seconds: PAIR_CODE_TTL_MS / 1000 };
 }
@@ -74,20 +76,20 @@ function verifyAndPair(code, deviceInfo) {
   }
 
   // Check pair code
-  const pairCode = db.prepare('SELECT * FROM pair_codes WHERE code = ? AND used = 0').get(code);
+  const pairCode = store.pairCodes.find((c) => c.code === code && !c.used);
   if (!pairCode) {
     return { error: 'Invalid or expired pairing code.' };
   }
 
   // Check TTL
   if (Date.now() - pairCode.created_at > PAIR_CODE_TTL_MS) {
-    db.prepare('DELETE FROM pair_codes WHERE code = ?').run(code);
+    store.pairCodes = store.pairCodes.filter((c) => c.code !== code);
+    save();
     return { error: 'Pairing code has expired.' };
   }
 
   // Check device limit
-  const devices = db.prepare('SELECT COUNT(*) as count FROM devices').get();
-  if (devices.count >= MAX_DEVICES) {
+  if (store.devices.length >= MAX_DEVICES) {
     return { error: `Maximum paired devices reached (${MAX_DEVICES}).` };
   }
 
@@ -96,49 +98,64 @@ function verifyAndPair(code, deviceInfo) {
   const deviceId = crypto.randomUUID();
   const serialHash = crypto.createHash('sha256').update(deviceInfo.serial || '').digest('hex');
 
-  db.prepare(`
-    INSERT INTO devices (id, token, manufacturer, model, serial_hash, display_name, paired_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    deviceId,
+  const device = {
+    id: deviceId,
     token,
-    deviceInfo.manufacturer,
-    deviceInfo.model || 'Unknown',
-    serialHash,
-    deviceInfo.displayName || `BOOX ${deviceInfo.model || 'Device'}`,
-    new Date().toISOString()
-  );
+    manufacturer: deviceInfo.manufacturer,
+    model: deviceInfo.model || 'Unknown',
+    serial_hash: serialHash,
+    display_name: deviceInfo.displayName || `BOOX ${deviceInfo.model || 'Device'}`,
+    paired_at: new Date().toISOString(),
+    last_seen_at: null,
+  };
+
+  store.devices.push(device);
 
   // Mark code as used
-  db.prepare('UPDATE pair_codes SET used = 1 WHERE code = ?').run(code);
+  pairCode.used = true;
+  save();
 
   return {
     device_id: deviceId,
     token,
-    display_name: deviceInfo.displayName || `BOOX ${deviceInfo.model || 'Device'}`,
+    display_name: device.display_name,
   };
 }
 
 function validateToken(token) {
   if (!token) return null;
-  const device = db.prepare('SELECT * FROM devices WHERE token = ?').get(token);
+  const device = store.devices.find((d) => d.token === token);
   if (device) {
-    db.prepare('UPDATE devices SET last_seen_at = ? WHERE id = ?').run(new Date().toISOString(), device.id);
+    device.last_seen_at = new Date().toISOString();
+    // Debounce saves — don't write on every request
+    if (!validateToken._saveTimer) {
+      validateToken._saveTimer = setTimeout(() => {
+        save();
+        validateToken._saveTimer = null;
+      }, 10000);
+    }
   }
   return device || null;
 }
 
 function listDevices() {
-  return db.prepare('SELECT id, manufacturer, model, display_name, paired_at, last_seen_at FROM devices').all();
+  return store.devices.map(({ id, manufacturer, model, display_name, paired_at, last_seen_at }) => ({
+    id, manufacturer, model, display_name, paired_at, last_seen_at,
+  }));
 }
 
 function unpairDevice(deviceId) {
-  const result = db.prepare('DELETE FROM devices WHERE id = ?').run(deviceId);
-  return result.changes > 0;
+  const before = store.devices.length;
+  store.devices = store.devices.filter((d) => d.id !== deviceId);
+  if (store.devices.length !== before) {
+    save();
+    return true;
+  }
+  return false;
 }
 
 function getDeviceCount() {
-  return db.prepare('SELECT COUNT(*) as count FROM devices').get().count;
+  return store.devices.length;
 }
 
 module.exports = {

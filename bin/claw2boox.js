@@ -146,7 +146,21 @@ async function main() {
   await start();
 }
 
+// Catch all unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('\n[claw2boox] Unexpected error:');
+  console.error(err.stack || err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('\n[claw2boox] Unhandled rejection:');
+  console.error(err.stack || err);
+  process.exit(1);
+});
+
 main().catch((err) => {
-  console.error('Fatal error:', err.message);
+  console.error('\n[claw2boox] Fatal error:');
+  console.error(err.stack || err.message || err);
   process.exit(1);
 });
