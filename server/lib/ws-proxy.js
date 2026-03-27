@@ -84,37 +84,11 @@ class GatewayProxy {
     if (this.identity) {
       params.auth = { token: this.identity.token };
 
-      // Device identity with self-signed nonce (all fields required by Gateway)
-      const nonce = crypto.randomBytes(32).toString('hex');
-      const signedAt = Date.now();
+      // Device identity base fields (nonce + signature added by challenge handler)
       params.device = {
         id: this.identity.deviceId,
         publicKey: this.identity.publicKeyPem,
-        nonce,
-        signedAt,
       };
-
-      // Sign nonce with Ed25519 private key
-      if (this.identity.privateKeyPem) {
-        try {
-          const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
-          const payload = `${nonce}:${signedAt}`;
-          const signature = crypto.sign(null, Buffer.from(payload), privateKey);
-          params.device.signature = signature.toString('base64');
-        } catch (e) {
-          console.error('[gateway] Failed to sign nonce:', e.message);
-          // Try signing just the nonce without signedAt
-          try {
-            const privateKey = crypto.createPrivateKey(this.identity.privateKeyPem);
-            const signature = crypto.sign(null, Buffer.from(nonce), privateKey);
-            params.device.signature = signature.toString('base64');
-          } catch (e2) {
-            console.error('[gateway] Failed to sign (fallback):', e2.message);
-          }
-        }
-      } else {
-        console.warn('[gateway] No private key available — cannot sign device identity');
-      }
     } else if (this.deviceToken) {
       params.auth = { token: this.deviceToken };
     } else if (this.password) {
@@ -148,16 +122,7 @@ class GatewayProxy {
         this.connected = true;
         this.currentDelay = this.reconnectDelay;
         this.consecutiveFailures = 0;
-        console.log('[gateway] Connected to OpenClaw');
-
-        const connectReq = {
-          type: 'req',
-          id: `claw2boox-connect-${++this.requestId}`,
-          method: 'connect',
-          params: this._buildConnectParams(),
-        };
-
-        this.gateway.send(JSON.stringify(connectReq));
+        console.log('[gateway] Connected to OpenClaw — waiting for challenge...');
         resolve();
       });
 
