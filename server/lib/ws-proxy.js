@@ -5,6 +5,33 @@ const path = require('path');
 const os = require('os');
 
 /**
+ * Load OpenClaw gateway auth token from env or config
+ * Priority: OPENCLAW_GATEWAY_TOKEN env > openclaw.json gateway.auth.token
+ */
+function loadGatewayToken() {
+  // 1. Environment variable
+  if (process.env.OPENCLAW_GATEWAY_TOKEN) {
+    return process.env.OPENCLAW_GATEWAY_TOKEN;
+  }
+  if (process.env.CLAWDBOT_GATEWAY_TOKEN) {
+    return process.env.CLAWDBOT_GATEWAY_TOKEN;
+  }
+
+  // 2. Config file
+  const configPath = process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), '.openclaw', 'openclaw.json');
+  try {
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      // Try gateway.auth.token first, then gateway.remote.token
+      const token = config.gateway?.auth?.token || config.gateway?.remote?.token;
+      if (token) return token;
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+/**
  * Load OpenClaw device identity from ~/.openclaw/identity/
  * Returns { deviceId, token, publicKeyPem, privateKeyPem } or null
  */
@@ -53,6 +80,12 @@ class GatewayProxy {
     this.lastStatus = null;
     this.fatalError = null;
 
+    // Auto-detect OpenClaw gateway token
+    this.gatewayToken = loadGatewayToken();
+    if (this.gatewayToken) {
+      console.log(`[gateway] Found gateway auth token: ${this.gatewayToken.substring(0, 8)}...`);
+    }
+
     // Auto-detect OpenClaw identity
     this.identity = loadOpenClawIdentity();
     if (this.identity) {
@@ -80,9 +113,9 @@ class GatewayProxy {
       scopes: ['operator.read'],
     };
 
-    // Auth: device identity uses signature auth (no token needed in auth field)
+    // Auth: gateway token required, device identity uses signature for device auth
     if (this.identity) {
-      params.auth = {};
+      params.auth = this.gatewayToken ? { token: this.gatewayToken } : {};
 
       // Device identity base fields (nonce + signature added by challenge handler)
       params.device = {
@@ -301,7 +334,7 @@ class GatewayProxy {
         const clientMode = params.client.mode;
         const role = params.role;
         const scopes = params.scopes.join(',');
-        const token = ''; // auth uses device signature, not token
+        const token = params.auth?.token || ''; // gateway auth token (must match what's in params.auth)
 
         const payload = ['v2', deviceId, clientId, clientMode, role, scopes, String(signedAt), token, challengeNonce].join('|');
 
