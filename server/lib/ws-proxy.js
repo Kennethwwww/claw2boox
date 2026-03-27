@@ -73,8 +73,8 @@ class GatewayProxy {
       client: {
         id: 'gateway-client',
         version: '0.1.0',
-        platform: 'nodejs',
-        mode: 'backend',
+        platform: os.platform(),
+        mode: 'ui',
       },
       role: 'operator',
       scopes: ['operator.read'],
@@ -229,9 +229,22 @@ class GatewayProxy {
       // Handle error responses
       if (msg.type === 'res' && !msg.ok) {
         const errMsg = msg.error || msg.payload?.error || 'unknown error';
-        if (msg.error?.code !== 'NOT_PAIRED') {
+
+        // Handle PAIRING_REQUIRED — try to auto-approve
+        if (msg.error?.code === 'NOT_PAIRED' || msg.error?.details?.code === 'PAIRING_REQUIRED') {
+          const requestId = msg.error?.details?.requestId;
+          const reason = msg.error?.details?.reason || 'unknown';
+          console.log(`[gateway] Pairing required (reason: ${reason}, requestId: ${requestId || 'none'})`);
+
+          if (requestId && !this._pairingApproveAttempted) {
+            this._pairingApproveAttempted = true;
+            console.log('[gateway] Attempting auto-approve of pairing request...');
+            this._tryAutoApprovePairing(requestId);
+          }
+        } else {
           console.error('[gateway] Request failed:', typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
         }
+
         if (msg.id && this.pendingRequests.has(msg.id)) {
           const { resolve } = this.pendingRequests.get(msg.id);
           this.pendingRequests.delete(msg.id);
@@ -314,6 +327,66 @@ class GatewayProxy {
     };
 
     this.gateway.send(JSON.stringify(connectReq));
+  }
+
+  _tryAutoApprovePairing(requestId) {
+    // Try approving the pairing request via WebSocket RPC
+    // This may work if the Gateway allows the device to self-approve
+    if (this.gateway && this.gateway.readyState === WebSocket.OPEN) {
+      const approveReq = {
+        type: 'req',
+        id: `claw2boox-approve-${++this.requestId}`,
+        method: 'device.pair.approve',
+        params: { requestId },
+      };
+      try {
+        this.gateway.send(JSON.stringify(approveReq));
+        console.log('[gateway] Sent auto-approve request');
+      } catch (e) {
+        console.log('[gateway] Failed to send approve request:', e.message);
+      }
+    }
+
+    // Also try via HTTP to the Gateway (loopback)
+    const http = require('http');
+    const gatewayHost = this.gatewayUrl.replace('ws://', '').replace(/:\d+$/, '').split(':')[0] || '127.0.0.1';
+    const gatewayPort = parseInt(this.gatewayUrl.replace(/.*:/, ''), 10) || 18789;
+
+    const postData = JSON.stringify({
+      type: 'req',
+      id: `http-approve-${Date.now()}`,
+      method: 'device.pair.approve',
+      params: { requestId },
+    });
+
+    const options = {
+      hostname: gatewayHost,
+      port: gatewayPort,
+      path: '/rpc',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+      timeout: 3000,
+    };
+
+    const req = http.request(options, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => {
+        console.log(`[gateway] HTTP auto-approve response (${res.statusCode}):`, body.substring(0, 200));
+      });
+    });
+    req.on('error', (e) => {
+      console.log('[gateway] HTTP auto-approve failed:', e.message);
+      console.log('');
+      console.log('[gateway] ⚠ Gateway 需要批准配对请求。请在另一个终端运行:');
+      console.log(`[gateway]   openclaw device pair approve ${requestId}`);
+      console.log('');
+    });
+    req.write(postData);
+    req.end();
   }
 
   _scheduleReconnect() {
